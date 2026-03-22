@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CheckCircle2, Copy, KeySquare, Loader2 } from "lucide-react";
 
 export default function SetupForm() {
@@ -9,6 +9,13 @@ export default function SetupForm() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ masterKey: string; totalFields: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [origin, setOrigin] = useState("https://your-domain.vercel.app");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,7 +94,7 @@ export default function SetupForm() {
           </p>
           <div className="bg-black/40 border border-white/10 rounded-xl max-w-full overflow-hidden p-4">
                <code className="text-sm font-mono text-primary break-all">
-                 https://your-domain.vercel.app/api
+                 {origin}/api/chat/completions
                </code>
           </div>
           <p className="text-neutral-400 text-sm mt-4">

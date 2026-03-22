@@ -1,18 +1,28 @@
+"use client";
+
 import Link from "next/link";
 import { Terminal, Code, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export default function Documentation() {
+  const [origin, setOrigin] = useState("https://your-domain.vercel.app");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin);
+    }
+  }, []);
   const codeNode = `import { OpenAI } from "openai";
 
 const groq = new OpenAI({
   apiKey: "sk-groq-YOUR_MASTER_KEY",
-  baseURL: "https://your-vercel-domain.vercel.app/api", // Important: Point this to your proxy
+  baseURL: "${origin}/api", // Important: Point this to your proxy
 });
 
 async function main() {
   const completion = await groq.chat.completions.create({
     messages: [{ role: "user", content: "Explain quantum computing in one sentence" }],
-    model: "llama3-8b-8192", // Choose from supported models
+    model: "llama-3.3-70b-versatile", // Choose from supported models
     stream: true, // Native streaming is fully supported!
   });
 
@@ -23,7 +33,7 @@ async function main() {
 
 main();`;
 
-  const codeCurl = `curl -X POST "https://your-vercel-domain.vercel.app/api/chat/completions" \\
+  const codeCurl = `curl -X POST "${origin}/api/chat/completions" \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer sk-groq-YOUR_MASTER_KEY" \\
   -d '{
