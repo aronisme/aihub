@@ -21,7 +21,26 @@ export async function POST(req: Request) {
     }
 
     // Capture the request body once to reuse across retries
-    const requestBody = await req.text();
+    const requestText = await req.text();
+    let requestedModel = '';
+    
+    try {
+       const parsedBody = JSON.parse(requestText);
+       requestedModel = parsedBody.model || '';
+    } catch {
+       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    // Enforce Phase 2 Model Binding
+    if (pool.allowedModels && pool.allowedModels.length > 0) {
+       // If wildcard * is somehow allowed, we could skip. But we strictly enforce selected strings.
+       if (!pool.allowedModels.includes(requestedModel)) {
+          return NextResponse.json(
+            { error: `This Master Key is not permitted to use model '${requestedModel}'. Allowed models: ${pool.allowedModels.join(', ')}` },
+            { status: 403 }
+          );
+       }
+    }
     
     // 3. Failover Loop
     let attempts = 0;
@@ -48,7 +67,7 @@ export async function POST(req: Request) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${groqKey}`,
         },
-        body: requestBody,
+        body: requestText,
       });
 
       // 5. Handle Groq response

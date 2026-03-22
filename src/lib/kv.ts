@@ -17,28 +17,70 @@ export interface GroqKey {
 export interface KeyPool {
   masterKey: string;
   groqKeys: GroqKey[];
+  allowedModels: string[]; // <-- Phase 2: Lock Master Key to specific models
   createdAt: number;
+}
+
+export interface MasterKeyHistory {
+  masterKey: string;
+  createdAt: number;
+  totalPoolSize: number;
+  allowedModels: string[];
+}
+
+/**
+ * Check if a key exists in the global set of used Groq keys
+ */
+export async function isKeyUsedGlobally(key: string): Promise<boolean> {
+  const isMember = await kv.sismember('global:used_groq_keys', key);
+  return isMember === 1;
 }
 
 /**
  * Creates a new key pool and saves it to KV
  */
-export async function createKeyPool(masterKey: string, apiKeys: string[]): Promise<KeyPool> {
-  const groqKeys: GroqKey[] = apiKeys.map((key) => ({
-    key: key.trim(),
-    status: 'active',
-    cooldownUntil: null,
-    totalRequests: 0,
-  }));
+export async function createKeyPool(masterKey: string, apiKeys: string[], allowedModels: string[]): Promise<KeyPool> {
+  const newKeys: GroqKey[] = [];
+  
+  for (const key of apiKeys) {
+    const k = key.trim();
+    // Add to global set of used keys
+    await kv.sadd('global:used_groq_keys', k);
+    newKeys.push({
+      key: k,
+      status: 'active',
+      cooldownUntil: null,
+      totalRequests: 0,
+    });
+  }
 
   const pool: KeyPool = {
     masterKey,
-    groqKeys,
+    groqKeys: newKeys,
+    allowedModels,
     createdAt: Date.now(),
   };
 
   await kv.set(`pool:${masterKey}`, pool);
+
+  // Add to master key history
+  const historyEntry: MasterKeyHistory = {
+    masterKey,
+    createdAt: pool.createdAt,
+    totalPoolSize: newKeys.length,
+    allowedModels
+  };
+  await kv.lpush('global:master_keys', historyEntry);
+
   return pool;
+}
+
+/**
+ * Retrieves the history of all generated Master Keys
+ */
+export async function getAllMasterKeys(): Promise<MasterKeyHistory[]> {
+  const keys = await kv.lrange('global:master_keys', 0, -1);
+  return (keys as unknown) as MasterKeyHistory[];
 }
 
 /**

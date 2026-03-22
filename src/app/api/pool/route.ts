@@ -25,8 +25,10 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       success: true,
+      masterKey: pool.masterKey,
       createdAt: pool.createdAt,
       totalKeys: pool.groqKeys.length,
+      allowedModels: pool.allowedModels || [],
       keys: maskedKeys
     });
   } catch (error: any) {

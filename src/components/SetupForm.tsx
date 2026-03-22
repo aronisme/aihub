@@ -1,13 +1,27 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CheckCircle2, Copy, KeySquare, Loader2 } from "lucide-react";
+import { CheckCircle2, Copy, KeySquare, Loader2, Lock, Cpu } from "lucide-react";
+
+const SUPPORTED_MODELS = [
+  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B Versatile", group: "Meta Llama" },
+  { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B Instant", group: "Meta Llama" },
+  { id: "llama3-70b-8192", label: "Llama 3 70B", group: "Meta Llama" },
+  { id: "llama3-8b-8192", label: "Llama 3 8B", group: "Meta Llama" },
+  { id: "mixtral-8x7b-32768", label: "Mixtral 8x7B", group: "Mistral" },
+  { id: "gemma2-9b-it", label: "Gemma 2 9B", group: "Google" },
+  { id: "gemma-7b-it", label: "Gemma 7B", group: "Google" },
+  { id: "llama-3.2-90b-vision-preview", label: "Llama 3.2 90B Vision", group: "Preview" },
+  { id: "llama-3.2-11b-vision-preview", label: "Llama 3.2 11B Vision", group: "Preview" },
+];
 
 export default function SetupForm() {
   const [keys, setKeys] = useState("");
+  const [password, setPassword] = useState("");
+  const [selectedModels, setSelectedModels] = useState<string[]>(SUPPORTED_MODELS.map(m => m.id));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<{ masterKey: string; totalFields: number } | null>(null);
+  const [result, setResult] = useState<{ masterKey: string; totalFields: number; duplicatesSkipped: number; models: string[] } | null>(null);
   const [copied, setCopied] = useState(false);
   const [origin, setOrigin] = useState("https://your-domain.vercel.app");
 
@@ -33,11 +47,20 @@ export default function SetupForm() {
       return;
     }
 
+    if (selectedModels.length === 0) {
+      setError("Please select at least one permitted model.");
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/setup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKeys: keyArray }),
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": password ? `Bearer ${password}` : ""
+        },
+        body: JSON.stringify({ apiKeys: keyArray, allowedModels: selectedModels }),
       });
 
       const data = await res.json();
@@ -46,7 +69,12 @@ export default function SetupForm() {
         throw new Error(data.error || "Failed to setup keys.");
       }
 
-      setResult({ masterKey: data.masterKey, totalFields: data.totalKeys });
+      setResult({ 
+        masterKey: data.masterKey, 
+        totalFields: data.totalKeys,
+        duplicatesSkipped: data.duplicatesSkipped || 0,
+        models: data.allowedModels || []
+      });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -69,8 +97,13 @@ export default function SetupForm() {
             <CheckCircle2 className="w-6 h-6 text-green-500" />
           </div>
           <h2 className="text-xl font-semibold text-white mb-2">Setup Complete!</h2>
-          <p className="text-green-400 text-sm mb-6">
-            Successfully pooled {result.totalFields} Groq API keys.
+          <p className="text-green-400 text-sm mb-6 max-w-sm">
+            Successfully pooled {result.totalFields} new Groq API keys.
+            {result.duplicatesSkipped > 0 && (
+              <span className="block text-yellow-500 mt-1">
+                Skipped {result.duplicatesSkipped} duplicates that are already in the DB.
+              </span>
+            )}
           </p>
           
           <div className="w-full bg-black/40 border border-white/10 rounded-xl p-4 flex items-center justify-between group">
@@ -105,8 +138,57 @@ export default function SetupForm() {
     );
   }
 
+  const toggleModel = (id: string) => {
+    setSelectedModels(prev => 
+      prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]
+    );
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="w-full space-y-4">
+    <form onSubmit={handleSubmit} className="w-full space-y-6">
+      <div>
+        <label className="block text-sm font-medium text-neutral-300 mb-2">
+          Admin Password <span className="text-neutral-500 text-xs">(If configured in Vercel)</span>
+        </label>
+        <div className="relative">
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Enter ADMIN_PASSWORD"
+            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-primary/50 transition-colors text-sm"
+          />
+          <div className="absolute top-3.5 right-4 text-white/20">
+            <Lock className="w-4 h-4" />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-neutral-300 mb-2">
+          Permitted Models (Classification)
+        </label>
+        <div className="bg-black/40 border border-white/10 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {SUPPORTED_MODELS.map(model => (
+            <label key={model.id} className="flex items-start gap-3 cursor-pointer group">
+              <div className="relative flex items-center justify-center mt-0.5">
+                <input
+                  type="checkbox"
+                  checked={selectedModels.includes(model.id)}
+                  onChange={() => toggleModel(model.id)}
+                  className="peer appearance-none w-4 h-4 border border-white/20 rounded-md checked:bg-primary checked:border-primary transition-colors cursor-pointer"
+                />
+                <CheckCircle2 className="w-3 h-3 text-white absolute opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-sm text-neutral-300 group-hover:text-white transition-colors">{model.label}</span>
+                <span className="text-[10px] text-neutral-500 uppercase tracking-wider">{model.group}</span>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
       <div>
         <label className="block text-sm font-medium text-neutral-300 mb-2">
           Paste your Groq API Keys
@@ -116,7 +198,7 @@ export default function SetupForm() {
             value={keys}
             onChange={(e) => setKeys(e.target.value)}
             placeholder={"gsk_XXXX...\ngsk_YYYY...\ngsk_ZZZZ..."}
-            className="w-full h-48 bg-black/40 border border-white/10 rounded-xl p-4 text-white placeholder-white/20 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all font-mono text-sm resize-none"
+            className="w-full h-40 bg-black/40 border border-white/10 rounded-xl p-4 text-white placeholder-white/20 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all font-mono text-sm resize-none"
             spellCheck={false}
           />
           <div className="absolute top-4 right-4 text-white/20">
@@ -124,7 +206,7 @@ export default function SetupForm() {
           </div>
         </div>
         <p className="text-xs text-neutral-500 mt-2">
-          Enter one key per line. They will be encrypted and saved to Vercel KV.
+          Enter one key per line. Duplicates already in the global database will be automatically skipped.
         </p>
       </div>
 
