@@ -88,6 +88,15 @@ export async function incrementGlobalGroqKeyUsage(key: string) {
   current.totalRequests = (current.totalRequests || 0) + 1;
   await kv.hset('global:groq_pool_status', { [key]: current });
 }
+/**
+ * Delete a specific Groq Key from the Global Pool
+ */
+export async function deleteGroqKeyFromPool(key: string): Promise<void> {
+  await Promise.all([
+    kv.srem('global:groq_pool_keys', key),
+    kv.hdel('global:groq_pool_status', key)
+  ]);
+}
 
 
 /* --- MASTER KEYS REGISTRY --- */
@@ -143,4 +152,20 @@ export async function incrementMasterKeyUsage(masterKey: string) {
 export async function getMasterKeyUsage(masterKey: string): Promise<number> {
   const count = await kv.hget<number>('global:master_key_stats', masterKey);
   return count || 0;
+}
+
+/**
+ * Delete a specific Master Key from the registry
+ */
+export async function deleteMasterKey(masterKey: string): Promise<void> {
+  // We need to find the entry in the list and remove it
+  const allKeys = await getAllMasterKeys();
+  const entry = allKeys.find(k => k.masterKey === masterKey);
+  
+  if (entry) {
+    await Promise.all([
+      kv.lrem('global:master_keys_registry', 0, entry),
+      kv.hdel('global:master_key_stats', masterKey)
+    ]);
+  }
 }

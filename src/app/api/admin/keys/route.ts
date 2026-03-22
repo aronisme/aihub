@@ -21,22 +21,39 @@ function isAdmin(req: Request) {
 export async function POST(req: Request) {
   try {
     if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const { apiKeys } = await req.json();
 
-    if (!apiKeys || !Array.isArray(apiKeys) || apiKeys.length === 0) {
-      return NextResponse.json({ error: 'Please provide an array of valid Groq API keys.' }, { status: 400 });
+    if (!apiKeys || !Array.isArray(apiKeys)) {
+      return NextResponse.json({ error: 'Invalid input. Expected an array of apiKeys.' }, { status: 400 });
     }
 
     const addedCount = await addKeysToGlobalPool(apiKeys);
 
-    return NextResponse.json({
-      success: true,
-      addedCount,
-      message: `Successfully added ${addedCount} new keys. Ignored duplicates.`
+    return NextResponse.json({ 
+      message: `Successfully processed ${apiKeys.length} keys. ${addedCount} new keys added to the global pool.`,
+      addedCount 
     });
-  } catch (err: any) {
-    return NextResponse.json({ error: 'Internal Server Error', details: err.message }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to add keys to global pool.' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { searchParams } = new URL(req.url);
+    const key = searchParams.get('key');
+    
+    if (!key) {
+      return NextResponse.json({ error: 'Missing key parameter' }, { status: 400 });
+    }
+    
+    const { deleteGroqKeyFromPool } = await import('@/lib/kv');
+    await deleteGroqKeyFromPool(key);
+    
+    return NextResponse.json({ message: 'Key deleted successfully' });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to delete key' }, { status: 500 });
   }
 }
 

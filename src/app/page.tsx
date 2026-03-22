@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { 
   Activity, Key, ShieldAlert, Zap, Lock, ListTree, Loader2, Copy, 
-  Terminal, Code, Settings, PlusCircle, CheckCircle2, ChevronRight
+  Terminal, Code, Settings, PlusCircle, CheckCircle2, ChevronRight,
+  LogOut, Trash2, Info, LayoutGrid, Cpu, Eye, MessageSquare, ShieldCheck, Languages, Headset
 } from "lucide-react";
 
 const SUPPORTED_MODELS = [
@@ -23,6 +24,49 @@ const SUPPORTED_MODELS = [
   { id: "qwen/qwen3-32b", label: "Qwen3 32B", group: "Preview" }
 ];
 
+const MODEL_CATEGORIES = [
+  { 
+    name: "REASONING", 
+    icon: <Cpu className="w-4 h-4" />, 
+    models: ["GPT OSS 120B", "GPT OSS 20B", "Qwen 3 32B"] 
+  },
+  { 
+    name: "FUNCTION CALLING / TOOL USE", 
+    icon: <Settings className="w-4 h-4" />, 
+    models: ["GPT OSS 120B", "GPT OSS 20B", "Llama 4 Scout", "Qwen 3 32B", "Kimi K2"] 
+  },
+  { 
+    name: "TEXT TO SPEECH", 
+    icon: <Headset className="w-4 h-4" />, 
+    models: ["ElevenLabs TTS", "Orpheus English", "Orpheus Arabic Saudi"] 
+  },
+  { 
+    name: "SPEECH TO TEXT", 
+    icon: <LayoutGrid className="w-4 h-4" />, 
+    models: ["Whisper Large v3", "Whisper Large v3 Turbo"] 
+  },
+  { 
+    name: "TEXT TO TEXT", 
+    icon: <MessageSquare className="w-4 h-4" />, 
+    models: ["GPT OSS 120B", "GPT OSS 20B", "Kimi K2", "Llama 4 Scout", "Llama 3.3 70B"] 
+  },
+  { 
+    name: "VISION", 
+    icon: <Eye className="w-4 h-4" />, 
+    models: ["Llama 4 Scout"] 
+  },
+  { 
+    name: "MULTILINGUAL", 
+    icon: <Languages className="w-4 h-4" />, 
+    models: ["GPT OSS 120B", "GPT OSS 20B", "Kimi K2", "Llama 4 Scout", "Llama 3.3 70B", "Whisper Large v3"] 
+  },
+  { 
+    name: "SAFETY / CONTENT MODERATION", 
+    icon: <ShieldCheck className="w-4 h-4" />, 
+    models: ["Safety GPT OSS 20B"] 
+  }
+];
+
 type TabType = 'pool' | 'master_keys' | 'playground' | 'docs';
 
 export default function UnifiedDashboard() {
@@ -37,6 +81,7 @@ export default function UnifiedDashboard() {
   const [newKeys, setNewKeys] = useState("");
   const [addLoading, setAddLoading] = useState(false);
   const [addMessage, setAddMessage] = useState({ text: "", type: "" });
+  const [poolKeys, setPoolKeys] = useState<any[]>([]);
 
   // Master Key Generation State
   const [mkName, setMkName] = useState("");
@@ -65,6 +110,9 @@ export default function UnifiedDashboard() {
     if ((activeTab === 'master_keys' || activeTab === 'playground') && history.length === 0) {
       fetchHistory();
     }
+    if (activeTab === 'pool') {
+      fetchPoolKeys();
+    }
   }, [activeTab]);
 
   const fetchStats = async () => {
@@ -82,6 +130,18 @@ export default function UnifiedDashboard() {
     }
   };
 
+  const fetchPoolKeys = async () => {
+    try {
+      const res = await fetch('/api/admin/keys');
+      if (res.ok) {
+        const data = await res.json();
+        setPoolKeys(data.keys || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const fetchHistory = async () => {
     try {
       setHistoryLoading(true);
@@ -94,6 +154,43 @@ export default function UnifiedDashboard() {
       console.error(e);
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      const res = await fetch('/api/auth/logout', { method: 'POST' });
+      if (res.ok) {
+        window.location.href = '/login';
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeletePoolKey = async (key: string) => {
+    if (!confirm("Are you sure you want to remove this Groq key?")) return;
+    try {
+      const res = await fetch(`/api/admin/keys?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchPoolKeys();
+        fetchStats();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteMasterKey = async (masterKey: string) => {
+    if (!confirm("Are you sure you want to revoke this Master Key?")) return;
+    try {
+      const res = await fetch(`/api/admin/master-keys?masterKey=${encodeURIComponent(masterKey)}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchHistory();
+        fetchStats();
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -116,7 +213,8 @@ export default function UnifiedDashboard() {
       
       setAddMessage({ text: data.message, type: "success" });
       setNewKeys("");
-      fetchStats(); // Refresh stats
+      fetchStats();
+      fetchPoolKeys();
     } catch (err: any) {
       setAddMessage({ text: err.message, type: "error" });
     } finally {
@@ -143,8 +241,8 @@ export default function UnifiedDashboard() {
 
       setMkMessage({ text: `Success! New key generated: ${data.masterKey.masterKey}`, type: "success" });
       setMkName("");
-      fetchHistory(); // Refresh history table
-      fetchStats(); // Update stats
+      fetchHistory();
+      fetchStats();
     } catch (err: any) {
       setMkMessage({ text: err.message, type: "error" });
     } finally {
@@ -211,24 +309,17 @@ export default function UnifiedDashboard() {
       let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
+        if (done) break;
         
-        const chunkStr = decoder.decode(value, { stream: true });
-        buffer += chunkStr;
+        buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         
-        // The last element is either an empty string (if it ended with newline) 
-        // or an incomplete line. Keep it in the buffer.
         buffer = lines.pop() || "";
         
         for (const line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
-          if (trimmedLine === 'data: [DONE]') {
-            return;
-          }
+          if (trimmedLine === 'data: [DONE]') return;
           if (trimmedLine.startsWith('data: ')) {
             try {
               const data = JSON.parse(trimmedLine.slice(6));
@@ -246,114 +337,6 @@ export default function UnifiedDashboard() {
     } finally {
       setPlayLoading(false);
     }
-  };
-
-  // --- Render Playground Tab ---
-  const renderPlayground = () => {
-    const selectedKeyObj = history.find(h => h.masterKey === playMk);
-    const availableModels = selectedKeyObj?.allowedModels?.length > 0
-      ? SUPPORTED_MODELS.filter(m => selectedKeyObj.allowedModels.includes(m.id))
-      : SUPPORTED_MODELS;
-
-    return (
-      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
-        <div className="glass-panel p-8 rounded-2xl">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-3 bg-primary/20 rounded-xl"><Terminal className="w-6 h-6 text-primary" /></div>
-            <div>
-              <h2 className="text-xl font-bold text-white">AI Playground</h2>
-              <p className="text-neutral-400 text-sm">Test your generated Master Keys in real-time instantly.</p>
-            </div>
-          </div>
-
-          <form onSubmit={handlePlaygroundSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-2">1. Select Master Key</label>
-                <select 
-                  value={playMk} 
-                  onChange={(e) => {
-                    setPlayMk(e.target.value);
-                    setPlayModel(""); // Reset model when key changes
-                  }}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary/50 transition-colors appearance-none"
-                  required
-                >
-                  <option value="" disabled>-- Choose a Key --</option>
-                  {history.map((h, i) => (
-                    <option key={i} value={h.masterKey}>{h.name || 'Unnamed'} ({h.masterKey.substring(0,12)}...)</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-2">2. Select Model</label>
-                <select 
-                  value={playModel} 
-                  onChange={(e) => setPlayModel(e.target.value)}
-                  disabled={!playMk}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary/50 transition-colors appearance-none disabled:opacity-50"
-                  required
-                >
-                  <option value="" disabled>-- Choose a Model --</option>
-                  {availableModels.map(m => (
-                    <option key={m.id} value={m.id}>{m.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-neutral-300 mb-2">System Prompt (Optional)</label>
-              <textarea
-                value={playSystem}
-                onChange={(e) => setPlaySystem(e.target.value)}
-                className="w-full h-20 bg-black/40 border border-white/10 rounded-xl p-4 text-neutral-300 focus:outline-none focus:border-primary/50 transition-colors text-sm resize-none"
-              />
-            </div>
-
-            <div className="border border-white/10 rounded-xl overflow-hidden bg-black/20 focus-within:border-primary/50 transition-colors">
-              <textarea
-                value={playMessage}
-                onChange={(e) => setPlayMessage(e.target.value)}
-                placeholder="Ask anything..."
-                className="w-full h-24 bg-transparent p-4 text-white placeholder-white/20 focus:outline-none border-none text-sm resize-none"
-                required
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (playMk && playModel && playMessage) handlePlaygroundSubmit(e as any);
-                  }
-                }}
-              />
-              <div className="bg-black/40 px-4 py-3 flex justify-end border-t border-white/10">
-                <button
-                  type="submit"
-                  disabled={playLoading || !playMk || !playModel || !playMessage.trim()}
-                  className="px-6 py-2 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {playLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {playLoading ? "Generating..." : "Send Request"}
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-
-        {/* Response Area */}
-        {playResponse && (
-          <div className="glass-panel p-6 rounded-2xl animate-in fade-in zoom-in-95 duration-500">
-             <div className="flex items-center gap-2 mb-4 border-b border-white/10 pb-3">
-               <Activity className="w-4 h-4 text-primary" />
-               <h3 className="text-sm font-bold text-white uppercase tracking-wider">AI Streaming Response</h3>
-             </div>
-             <div className="prose prose-invert max-w-none text-sm leading-relaxed text-neutral-300 whitespace-pre-wrap font-sans">
-               {playResponse}
-             </div>
-          </div>
-        )}
-      </div>
-    );
   };
 
   // --- Render Documentation Tab ---
@@ -379,8 +362,29 @@ async function main() {
 main();`;
 
     return (
-      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="glass-panel p-8 rounded-2xl mb-8">
+      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
+        {/* Model Categories Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {MODEL_CATEGORIES.map((cat, i) => (
+            <div key={i} className="glass-panel p-6 rounded-2xl border border-white/5 hover:border-white/10 transition-colors">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-white/5 rounded-lg text-primary">{cat.icon}</div>
+                <h3 className="text-sm font-bold text-white tracking-widest">{cat.name}</h3>
+              </div>
+              <div className="space-y-2">
+                {cat.models.map((model, mi) => (
+                  <div key={mi} className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-primary/40" />
+                    <span className="text-xs text-neutral-400">{model}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Integration Code */}
+        <div className="glass-panel p-8 rounded-2xl">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-3 bg-white/10 rounded-xl"><Terminal className="w-6 h-6 text-white" /></div>
             <div>
@@ -493,7 +497,7 @@ main();`;
                   <th className="pb-3 font-medium">Master Key</th>
                   <th className="pb-3 font-medium">Allowed Models</th>
                   <th className="pb-3 font-medium">Created On</th>
-                  <th className="pb-3 font-medium text-right">Copy</th>
+                  <th className="pb-3 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -510,13 +514,22 @@ main();`;
                     </td>
                     <td className="py-4 text-neutral-300">{new Date(entry.createdAt).toLocaleDateString()}</td>
                     <td className="py-4 text-right">
-                      <button 
-                        onClick={() => copyToClipboard(entry.masterKey)}
-                        className="p-2 hover:bg-white/10 rounded-lg transition-colors text-neutral-400 hover:text-white"
-                        title="Copy Master Key"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button 
+                          onClick={() => copyToClipboard(entry.masterKey)}
+                          className="p-2 hover:bg-white/10 rounded-lg transition-colors text-neutral-400 hover:text-white"
+                          title="Copy Master Key"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteMasterKey(entry.masterKey)}
+                          className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-neutral-400 hover:text-red-400"
+                          title="Delete Master Key"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -527,6 +540,114 @@ main();`;
       </div>
     </div>
   );
+
+  // --- Render Playground Tab ---
+  const renderPlayground = () => {
+    const selectedKeyObj = history.find(h => h.masterKey === playMk);
+    const availableModels = selectedKeyObj?.allowedModels?.length > 0
+      ? SUPPORTED_MODELS.filter(m => selectedKeyObj.allowedModels.includes(m.id))
+      : SUPPORTED_MODELS;
+
+    return (
+      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+        <div className="glass-panel p-8 rounded-2xl">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-3 bg-primary/20 rounded-xl"><Terminal className="w-6 h-6 text-primary" /></div>
+            <div>
+              <h2 className="text-xl font-bold text-white">AI Playground</h2>
+              <p className="text-neutral-400 text-sm">Test your generated Master Keys in real-time instantly.</p>
+            </div>
+          </div>
+
+          <form onSubmit={handlePlaygroundSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-2">1. Select Master Key</label>
+                <select 
+                  value={playMk} 
+                  onChange={(e) => {
+                    setPlayMk(e.target.value);
+                    setPlayModel(""); // Reset model when key changes
+                  }}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary/50 transition-colors appearance-none"
+                  required
+                >
+                  <option value="" disabled>-- Choose a Key --</option>
+                  {history.map((h, i) => (
+                    <option key={i} value={h.masterKey}>{h.name || 'Unnamed'} ({h.masterKey.substring(0,12)}...)</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-2">2. Select Model</label>
+                <select 
+                  value={playModel} 
+                  onChange={(e) => setPlayModel(e.target.value)}
+                  disabled={!playMk}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary/50 transition-colors appearance-none disabled:opacity-50"
+                  required
+                >
+                  <option value="" disabled>-- Choose a Model --</option>
+                  {availableModels.map(m => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-2">System Prompt (Optional)</label>
+              <textarea
+                value={playSystem}
+                onChange={(e) => setPlaySystem(e.target.value)}
+                className="w-full h-20 bg-black/40 border border-white/10 rounded-xl p-4 text-neutral-300 focus:outline-none focus:border-primary/50 transition-colors text-sm resize-none"
+              />
+            </div>
+
+            <div className="border border-white/10 rounded-xl overflow-hidden bg-black/20 focus-within:border-primary/50 transition-colors">
+              <textarea
+                value={playMessage}
+                onChange={(e) => setPlayMessage(e.target.value)}
+                placeholder="Ask anything..."
+                className="w-full h-24 bg-transparent p-4 text-white placeholder-white/20 focus:outline-none border-none text-sm resize-none"
+                required
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (playMk && playModel && playMessage) handlePlaygroundSubmit(e as any);
+                  }
+                }}
+              />
+              <div className="bg-black/40 px-4 py-3 flex justify-end border-t border-white/10">
+                <button
+                  type="submit"
+                  disabled={playLoading || !playMk || !playModel || !playMessage.trim()}
+                  className="px-6 py-2 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {playLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {playLoading ? "Generating..." : "Send Request"}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        {/* Response Area */}
+        {playResponse && (
+          <div className="glass-panel p-6 rounded-2xl animate-in fade-in zoom-in-95 duration-500">
+             <div className="flex items-center gap-2 mb-4 border-b border-white/10 pb-3">
+               <Activity className="w-4 h-4 text-primary" />
+               <h3 className="text-sm font-bold text-white uppercase tracking-wider">AI Streaming Response</h3>
+             </div>
+             <div className="prose prose-invert max-w-none text-sm leading-relaxed text-neutral-300 whitespace-pre-wrap font-sans">
+               {playResponse}
+             </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // --- Render Global Pool Tab ---
   const renderGlobalPool = () => (
@@ -592,6 +713,54 @@ main();`;
         </form>
       </div>
 
+      {/* Groq Keys Table */}
+      <div className="glass-panel p-8 rounded-2xl">
+        <h2 className="text-xl font-bold text-white mb-6">Pool Key Management</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-neutral-400">
+                <th className="pb-3 font-medium">Groq Key</th>
+                <th className="pb-3 font-medium">Status</th>
+                <th className="pb-3 font-medium">Total Usage</th>
+                <th className="pb-3 font-medium text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {poolKeys.map((k, i) => (
+                <tr key={i} className="hover:bg-white/5 transition-colors">
+                  <td className="py-4 font-mono text-xs text-neutral-300">{k.key.substring(0, 16)}...</td>
+                  <td className="py-4">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                      k.status === 'active' ? 'bg-green-500/20 text-green-400' : 
+                      k.status === 'cooldown' ? 'bg-yellow-500/20 text-yellow-400' : 
+                      'bg-red-500/20 text-red-400'
+                    }`}>
+                      {k.status}
+                    </span>
+                  </td>
+                  <td className="py-4 text-neutral-400">{k.totalRequests || 0} reqs</td>
+                  <td className="py-4 text-right">
+                    <button 
+                      onClick={() => handleDeletePoolKey(k.key)}
+                      className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-neutral-400 hover:text-red-400"
+                      title="Delete Key"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {poolKeys.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="py-8 text-center text-neutral-500 italic">No keys in the global pool.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
   );
 
@@ -614,6 +783,13 @@ main();`;
             </h1>
             <p className="text-neutral-400 mt-2">Manage your global API key pool and master tokens.</p>
           </div>
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-white text-sm font-medium transition-all group"
+          >
+            <LogOut className="w-4 h-4 text-neutral-400 group-hover:text-white transition-colors" />
+            Logout Session
+          </button>
         </header>
 
         {/* Tabs Navigation */}

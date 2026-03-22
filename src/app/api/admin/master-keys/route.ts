@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
-import { createMasterKey, getAllMasterKeys } from '@/lib/kv';
+import { 
+  createMasterKey, 
+  getAllMasterKeys,
+  getMasterKeyUsage,
+  deleteMasterKey
+} from '@/lib/kv';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +46,25 @@ export async function POST(req: Request) {
     });
   } catch (err: any) {
     return NextResponse.json({ error: 'Internal Server Error', details: err.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { searchParams } = new URL(req.url);
+    const masterKey = searchParams.get('masterKey');
+    
+    if (!masterKey) {
+      return NextResponse.json({ error: 'Missing masterKey parameter' }, { status: 400 });
+    }
+    
+    await deleteMasterKey(masterKey);
+    
+    return NextResponse.json({ message: 'Master Key deleted successfully' });
+  } catch (error: any) {
+    return NextResponse.json({ error: 'Failed to delete Master Key', details: error.message }, { status: 500 });
   }
 }
 
