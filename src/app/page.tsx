@@ -170,7 +170,6 @@ export default function UnifiedDashboard() {
     setPlayResponse("");
 
     try {
-      console.log("[PLAYGROUND] Starting fetch to /api/chat/completions", { playMk, playModel, playSystem, playMessage });
       const res = await fetch("/api/chat/completions", {
         method: "POST",
         headers: {
@@ -186,8 +185,6 @@ export default function UnifiedDashboard() {
           stream: true
         })
       });
-
-      console.log("[PLAYGROUND] Fetch Initial Response Status:", res.status);
 
       if (!res.ok) {
         let err;
@@ -212,16 +209,13 @@ export default function UnifiedDashboard() {
       if (!reader) throw new Error("No readable stream");
 
       let buffer = "";
-      console.log("[PLAYGROUND] Starting to read stream...");
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
-          console.log("[PLAYGROUND] Stream done.");
           break;
         }
         
         const chunkStr = decoder.decode(value, { stream: true });
-        console.log(`[PLAYGROUND] Received chunk of length ${value?.length}`);
         buffer += chunkStr;
         const lines = buffer.split('\n');
         
@@ -233,7 +227,6 @@ export default function UnifiedDashboard() {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
           if (trimmedLine === 'data: [DONE]') {
-            console.log("[PLAYGROUND] Reached STOP flag data: [DONE]");
             return;
           }
           if (trimmedLine.startsWith('data: ')) {
@@ -243,16 +236,14 @@ export default function UnifiedDashboard() {
                 setPlayResponse(prev => prev + data.choices[0].delta.content);
               }
             } catch (e) {
-              console.error("[PLAYGROUND] Stream parse error:", e, trimmedLine);
+              console.error("Stream parse error:", e, trimmedLine);
             }
           }
         }
       }
     } catch (err: any) {
-       console.error("[PLAYGROUND] Fatal error caught:", err);
        setPlayResponse(`Error: ${err.message}`);
     } finally {
-      console.log("[PLAYGROUND] Request finished.");
       setPlayLoading(false);
     }
   };
