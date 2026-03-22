@@ -223,9 +223,9 @@ export default function UnifiedDashboard() {
         const chunkStr = decoder.decode(value, { stream: true });
         console.log(`[PLAYGROUND] Received chunk of length ${value?.length}`);
         buffer += chunkStr;
-        const lines = buffer.split('\\n');
+        const lines = buffer.split('\n');
         
-        // The last element is either an empty string (if it ended with \\n) 
+        // The last element is either an empty string (if it ended with newline) 
         // or an incomplete line. Keep it in the buffer.
         buffer = lines.pop() || "";
         
