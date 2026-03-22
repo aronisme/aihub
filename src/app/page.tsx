@@ -182,8 +182,21 @@ export default function UnifiedDashboard() {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Request failed");
+        let err;
+        try {
+          err = await res.json();
+        } catch {
+          throw new Error("Request failed with status " + res.status);
+        }
+        
+        let errorMessage = "Request failed";
+        if (err.error) {
+          errorMessage = typeof err.error === 'string' ? err.error : JSON.stringify(err.error, null, 2);
+        } else if (err.details) {
+          errorMessage = err.details;
+        }
+
+        throw new Error(errorMessage);
       }
 
       const reader = res.body?.getReader();
