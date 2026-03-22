@@ -18,7 +18,7 @@ const SUPPORTED_MODELS = [
   { id: "llama-3.2-11b-vision-preview", label: "Llama 3.2 11B Vision", group: "Preview" },
 ];
 
-type TabType = 'pool' | 'master_keys' | 'docs';
+type TabType = 'pool' | 'master_keys' | 'playground' | 'docs';
 
 export default function UnifiedDashboard() {
   const [activeTab, setActiveTab] = useState<TabType>('pool');
@@ -41,6 +41,14 @@ export default function UnifiedDashboard() {
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  // Playground State
+  const [playMk, setPlayMk] = useState("");
+  const [playModel, setPlayModel] = useState("");
+  const [playSystem, setPlaySystem] = useState("You are a helpful AI assistant.");
+  const [playMessage, setPlayMessage] = useState("");
+  const [playResponse, setPlayResponse] = useState("");
+  const [playLoading, setPlayLoading] = useState(false);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       setOrigin(window.location.origin);
@@ -49,7 +57,7 @@ export default function UnifiedDashboard() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'master_keys' && history.length === 0) {
+    if ((activeTab === 'master_keys' || activeTab === 'playground') && history.length === 0) {
       fetchHistory();
     }
   }, [activeTab]);
@@ -146,6 +154,175 @@ export default function UnifiedDashboard() {
   const toggleModel = (id: string) => {
     setSelectedModels(prev => 
       prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]
+    );
+  };
+
+  const handlePlaygroundSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!playMk || !playModel || !playMessage.trim()) return;
+
+    setPlayLoading(true);
+    setPlayResponse("");
+
+    try {
+      const res = await fetch("/api/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${playMk}`
+        },
+        body: JSON.stringify({
+          model: playModel,
+          messages: [
+            ...(playSystem ? [{ role: "system", content: playSystem }] : []),
+            { role: "user", content: playMessage }
+          ],
+          stream: true
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Request failed");
+      }
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error("No readable stream");
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\\n').filter(line => line.trim() !== '');
+        
+        for (const line of lines) {
+          if (line === 'data: [DONE]') return;
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.choices[0].delta.content) {
+                setPlayResponse(prev => prev + data.choices[0].delta.content);
+              }
+            } catch (e) {
+              // Ignore parse errors for incomplete chunks
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+       setPlayResponse(`Error: ${err.message}`);
+    } finally {
+      setPlayLoading(false);
+    }
+  };
+
+  // --- Render Playground Tab ---
+  const renderPlayground = () => {
+    const selectedKeyObj = history.find(h => h.masterKey === playMk);
+    const availableModels = selectedKeyObj?.allowedModels?.length > 0
+      ? SUPPORTED_MODELS.filter(m => selectedKeyObj.allowedModels.includes(m.id))
+      : SUPPORTED_MODELS;
+
+    return (
+      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+        <div className="glass-panel p-8 rounded-2xl">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-3 bg-primary/20 rounded-xl"><Terminal className="w-6 h-6 text-primary" /></div>
+            <div>
+              <h2 className="text-xl font-bold text-white">AI Playground</h2>
+              <p className="text-neutral-400 text-sm">Test your generated Master Keys in real-time instantly.</p>
+            </div>
+          </div>
+
+          <form onSubmit={handlePlaygroundSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-2">1. Select Master Key</label>
+                <select 
+                  value={playMk} 
+                  onChange={(e) => {
+                    setPlayMk(e.target.value);
+                    setPlayModel(""); // Reset model when key changes
+                  }}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary/50 transition-colors appearance-none"
+                  required
+                >
+                  <option value="" disabled>-- Choose a Key --</option>
+                  {history.map((h, i) => (
+                    <option key={i} value={h.masterKey}>{h.name || 'Unnamed'} ({h.masterKey.substring(0,12)}...)</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-2">2. Select Model</label>
+                <select 
+                  value={playModel} 
+                  onChange={(e) => setPlayModel(e.target.value)}
+                  disabled={!playMk}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary/50 transition-colors appearance-none disabled:opacity-50"
+                  required
+                >
+                  <option value="" disabled>-- Choose a Model --</option>
+                  {availableModels.map(m => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-2">System Prompt (Optional)</label>
+              <textarea
+                value={playSystem}
+                onChange={(e) => setPlaySystem(e.target.value)}
+                className="w-full h-20 bg-black/40 border border-white/10 rounded-xl p-4 text-neutral-300 focus:outline-none focus:border-primary/50 transition-colors text-sm resize-none"
+              />
+            </div>
+
+            <div className="border border-white/10 rounded-xl overflow-hidden bg-black/20 focus-within:border-primary/50 transition-colors">
+              <textarea
+                value={playMessage}
+                onChange={(e) => setPlayMessage(e.target.value)}
+                placeholder="Ask anything..."
+                className="w-full h-24 bg-transparent p-4 text-white placeholder-white/20 focus:outline-none border-none text-sm resize-none"
+                required
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (playMk && playModel && playMessage) handlePlaygroundSubmit(e as any);
+                  }
+                }}
+              />
+              <div className="bg-black/40 px-4 py-3 flex justify-end border-t border-white/10">
+                <button
+                  type="submit"
+                  disabled={playLoading || !playMk || !playModel || !playMessage.trim()}
+                  className="px-6 py-2 bg-white text-black text-sm font-semibold rounded-lg hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {playLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {playLoading ? "Generating..." : "Send Request"}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        {/* Response Area */}
+        {playResponse && (
+          <div className="glass-panel p-6 rounded-2xl animate-in fade-in zoom-in-95 duration-500">
+             <div className="flex items-center gap-2 mb-4 border-b border-white/10 pb-3">
+               <Activity className="w-4 h-4 text-primary" />
+               <h3 className="text-sm font-bold text-white uppercase tracking-wider">AI Streaming Response</h3>
+             </div>
+             <div className="prose prose-invert max-w-none text-sm leading-relaxed text-neutral-300 whitespace-pre-wrap font-sans">
+               {playResponse}
+             </div>
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -428,6 +605,14 @@ main();`;
             Master Keys
           </button>
           <button 
+            onClick={() => setActiveTab('playground')}
+            className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+              activeTab === 'playground' ? 'bg-white text-black shadow-lg scale-100' : 'text-neutral-400 hover:text-white hover:bg-white/5 scale-95 origin-left'
+            }`}
+          >
+            Playground
+          </button>
+          <button 
             onClick={() => setActiveTab('docs')}
             className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
               activeTab === 'docs' ? 'bg-white text-black shadow-lg scale-100' : 'text-neutral-400 hover:text-white hover:bg-white/5 scale-95 origin-left'
@@ -441,6 +626,7 @@ main();`;
         <div className="min-h-[500px]">
           {activeTab === 'pool' && renderGlobalPool()}
           {activeTab === 'master_keys' && renderMasterKeys()}
+          {activeTab === 'playground' && renderPlayground()}
           {activeTab === 'docs' && renderDocs()}
         </div>
 
