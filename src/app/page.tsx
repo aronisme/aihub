@@ -205,26 +205,33 @@ export default function UnifiedDashboard() {
       }
 
       const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
+      const decoder = new TextDecoder("utf-8");
       if (!reader) throw new Error("No readable stream");
 
+      let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\\n').filter(line => line.trim() !== '');
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\\n');
+        
+        // The last element is either an empty string (if it ended with \\n) 
+        // or an incomplete line. Keep it in the buffer.
+        buffer = lines.pop() || "";
         
         for (const line of lines) {
-          if (line === 'data: [DONE]') return;
-          if (line.startsWith('data: ')) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine) continue;
+          if (trimmedLine === 'data: [DONE]') return;
+          if (trimmedLine.startsWith('data: ')) {
             try {
-              const data = JSON.parse(line.slice(6));
-              if (data.choices[0].delta.content) {
+              const data = JSON.parse(trimmedLine.slice(6));
+              if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
                 setPlayResponse(prev => prev + data.choices[0].delta.content);
               }
             } catch (e) {
-              // Ignore parse errors for incomplete chunks
+              console.error("Stream parse error:", e, trimmedLine);
             }
           }
         }
