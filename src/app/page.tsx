@@ -170,6 +170,7 @@ export default function UnifiedDashboard() {
     setPlayResponse("");
 
     try {
+      console.log("[PLAYGROUND] Starting fetch to /api/chat/completions", { playMk, playModel, playSystem, playMessage });
       const res = await fetch("/api/chat/completions", {
         method: "POST",
         headers: {
@@ -185,6 +186,8 @@ export default function UnifiedDashboard() {
           stream: true
         })
       });
+
+      console.log("[PLAYGROUND] Fetch Initial Response Status:", res.status);
 
       if (!res.ok) {
         let err;
@@ -209,11 +212,17 @@ export default function UnifiedDashboard() {
       if (!reader) throw new Error("No readable stream");
 
       let buffer = "";
+      console.log("[PLAYGROUND] Starting to read stream...");
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          console.log("[PLAYGROUND] Stream done.");
+          break;
+        }
         
-        buffer += decoder.decode(value, { stream: true });
+        const chunkStr = decoder.decode(value, { stream: true });
+        console.log(`[PLAYGROUND] Received chunk of length ${value?.length}`);
+        buffer += chunkStr;
         const lines = buffer.split('\\n');
         
         // The last element is either an empty string (if it ended with \\n) 
@@ -223,7 +232,10 @@ export default function UnifiedDashboard() {
         for (const line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
-          if (trimmedLine === 'data: [DONE]') return;
+          if (trimmedLine === 'data: [DONE]') {
+            console.log("[PLAYGROUND] Reached STOP flag data: [DONE]");
+            return;
+          }
           if (trimmedLine.startsWith('data: ')) {
             try {
               const data = JSON.parse(trimmedLine.slice(6));
@@ -231,14 +243,16 @@ export default function UnifiedDashboard() {
                 setPlayResponse(prev => prev + data.choices[0].delta.content);
               }
             } catch (e) {
-              console.error("Stream parse error:", e, trimmedLine);
+              console.error("[PLAYGROUND] Stream parse error:", e, trimmedLine);
             }
           }
         }
       }
     } catch (err: any) {
+       console.error("[PLAYGROUND] Fatal error caught:", err);
        setPlayResponse(`Error: ${err.message}`);
     } finally {
+      console.log("[PLAYGROUND] Request finished.");
       setPlayLoading(false);
     }
   };

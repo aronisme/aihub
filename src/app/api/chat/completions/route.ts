@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Max allowed for hobby plan
 
 export async function POST(req: Request) {
+  console.log("[PROXY] Inbound Request received to /api/chat/completions");
   try {
     // 1. Authenticate Master Key
     const authHeader = req.headers.get('Authorization');
@@ -22,8 +23,10 @@ export async function POST(req: Request) {
     const masterKeyObj = await getMasterKey(token);
 
     if (!masterKeyObj) {
+      console.log("[PROXY] Invalid Master Key token rejected:", token.substring(0,10));
       return NextResponse.json({ error: 'Invalid Master Key.' }, { status: 401 });
     }
+    console.log("[PROXY] Master Key Validated:", masterKeyObj.name);
 
     // Capture the request body once to reuse across retries
     const requestText = await req.text();
@@ -32,6 +35,7 @@ export async function POST(req: Request) {
     try {
        const parsedBody = JSON.parse(requestText);
        requestedModel = parsedBody.model || '';
+       console.log("[PROXY] Requested Model:", requestedModel);
     } catch {
        return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
@@ -48,6 +52,7 @@ export async function POST(req: Request) {
 
     // 2. Fetch Global Pool
     let globalKeys = await getGlobalPoolKeys();
+    console.log(`[PROXY] Loaded ${globalKeys?.length || 0} keys from Global Pool.`);
 
     if (!globalKeys || globalKeys.length === 0) {
       return NextResponse.json({ error: 'Global Pool is empty. Please ask the Admin to add Groq keys.' }, { status: 503 });
@@ -87,6 +92,7 @@ export async function POST(req: Request) {
       const groqKey = selectedKey.key;
 
       // 4. Send request to Groq
+      console.log(`[PROXY] Attempt ${attempts}: Sending to Groq using Key: ${groqKey.substring(0,8)}...`);
       const groqReq = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -95,6 +101,7 @@ export async function POST(req: Request) {
         },
         body: requestText,
       });
+      console.log(`[PROXY] Groq Response Status: ${groqReq.status}`);
 
       // 5. Handle Groq response
       if (groqReq.ok) {
@@ -108,6 +115,7 @@ export async function POST(req: Request) {
         const headers = new Headers();
         groqReq.headers.forEach((value, key) => headers.set(key, value));
 
+        console.log("[PROXY] Returning successful stream to Client.");
         return new NextResponse(groqReq.body, {
           status: groqReq.status,
           statusText: groqReq.statusText,
