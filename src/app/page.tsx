@@ -7,15 +7,20 @@ import {
 } from "lucide-react";
 
 const SUPPORTED_MODELS = [
-  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B Versatile", group: "Meta Llama" },
-  { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B Instant", group: "Meta Llama" },
-  { id: "llama3-70b-8192", label: "Llama 3 70B", group: "Meta Llama" },
-  { id: "llama3-8b-8192", label: "Llama 3 8B", group: "Meta Llama" },
-  { id: "mixtral-8x7b-32768", label: "Mixtral 8x7B", group: "Mistral" },
-  { id: "gemma2-9b-it", label: "Gemma 2 9B", group: "Google" },
-  { id: "gemma-7b-it", label: "Gemma 7B", group: "Google" },
-  { id: "llama-3.2-90b-vision-preview", label: "Llama 3.2 90B Vision", group: "Preview" },
-  { id: "llama-3.2-11b-vision-preview", label: "Llama 3.2 11B Vision", group: "Preview" },
+  // Production Models
+  { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B Instant", group: "Production" },
+  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B Versatile", group: "Production" },
+  { id: "openai/gpt-oss-120b", label: "GPT OSS 120B", group: "Production" },
+  { id: "openai/gpt-oss-20b", label: "GPT OSS 20B", group: "Production" },
+  
+  // Production Systems
+  { id: "groq/compound", label: "Groq Compound", group: "Production System" },
+  { id: "groq/compound-mini", label: "Groq Compound Mini", group: "Production System" },
+  
+  // Preview Models
+  { id: "meta-llama/llama-4-scout-17b-16e-instruct", label: "Llama 4 Scout 17B", group: "Preview" },
+  { id: "moonshotai/kimi-k2-instruct-0905", label: "Kimi K2 0905", group: "Preview" },
+  { id: "qwen/qwen3-32b", label: "Qwen3 32B", group: "Preview" }
 ];
 
 type TabType = 'pool' | 'master_keys' | 'playground' | 'docs';
