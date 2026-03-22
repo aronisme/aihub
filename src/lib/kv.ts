@@ -7,157 +7,140 @@ export const kv = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '',
 });
 
-export interface GroqKey {
+/* =========================================
+   PHASE 3: GLOBAL POOL ARCHITECTURE
+   ========================================= */
+
+export interface GroqKeyGlobal {
   key: string;
   status: 'active' | 'cooldown' | 'dead';
   cooldownUntil: number | null; // Timestamp
   totalRequests: number;
 }
 
-export interface KeyPool {
+export interface MasterKeyGlobal {
   masterKey: string;
-  groqKeys: GroqKey[];
-  allowedModels: string[]; // <-- Phase 2: Lock Master Key to specific models
+  name: string;
   createdAt: number;
-}
-
-export interface MasterKeyHistory {
-  masterKey: string;
-  createdAt: number;
-  totalPoolSize: number;
   allowedModels: string[];
+  totalRequests: number; // requests specifically routed through this Master Key
 }
 
-/**
- * Check if a key exists in the global set of used Groq keys
- */
-export async function isKeyUsedGlobally(key: string): Promise<boolean> {
-  const isMember = await kv.sismember('global:used_groq_keys', key);
-  return isMember === 1;
-}
+/* --- GROQ KEYS POOL --- */
 
 /**
- * Creates a new key pool and saves it to KV
+ * Add new Groq Keys to the Global Pool.
+ * Automatically skips duplicates by using a Redis Set.
+ * @returns Number of successfully added new keys.
  */
-export async function createKeyPool(masterKey: string, apiKeys: string[], allowedModels: string[]): Promise<KeyPool> {
-  const newKeys: GroqKey[] = [];
-  
-  for (const key of apiKeys) {
-    const k = key.trim();
-    // Add to global set of used keys
-    await kv.sadd('global:used_groq_keys', k);
-    newKeys.push({
-      key: k,
-      status: 'active',
-      cooldownUntil: null,
-      totalRequests: 0,
-    });
-  }
+export async function addKeysToGlobalPool(apiKeys: string[]): Promise<number> {
+  let addedCount = 0;
+  for (const k of apiKeys) {
+    const key = k.trim();
+    if (!key) continue;
 
-  const pool: KeyPool = {
-    masterKey,
-    groqKeys: newKeys,
-    allowedModels,
-    createdAt: Date.now(),
-  };
-
-  await kv.set(`pool:${masterKey}`, pool);
-
-  // Add to master key history
-  const historyEntry: MasterKeyHistory = {
-    masterKey,
-    createdAt: pool.createdAt,
-    totalPoolSize: newKeys.length,
-    allowedModels
-  };
-  await kv.lpush('global:master_keys', historyEntry);
-
-  return pool;
-}
-
-/**
- * Retrieves the history of all generated Master Keys
- */
-export async function getAllMasterKeys(): Promise<MasterKeyHistory[]> {
-  const keys = await kv.lrange('global:master_keys', 0, -1);
-  return (keys as unknown) as MasterKeyHistory[];
-}
-
-/**
- * Retrieves a key pool by Master Key
- */
-export async function getKeyPool(masterKey: string): Promise<KeyPool | null> {
-  return await kv.get<KeyPool>(`pool:${masterKey}`);
-}
-
-/**
- * Updates an entire key pool in KV
- */
-export async function updateKeyPool(masterKey: string, pool: KeyPool): Promise<void> {
-  await kv.set(`pool:${masterKey}`, pool);
-}
-
-/**
- * Marks a specific key as rate-limited (cooldown for 1 minute) or dead (500 errors)
- */
-export async function updateKeyState(
-  masterKey: string,
-  failedKey: string,
-  newState: 'cooldown' | 'dead'
-): Promise<void> {
-  const pool = await getKeyPool(masterKey);
-  if (!pool) return;
-
-  const keyIndex = pool.groqKeys.findIndex((k) => k.key === failedKey);
-  if (keyIndex === -1) return;
-
-  if (newState === 'cooldown') {
-    // 60 seconds cooldown
-    pool.groqKeys[keyIndex].status = 'cooldown';
-    pool.groqKeys[keyIndex].cooldownUntil = Date.now() + 60 * 1000;
-  } else if (newState === 'dead') {
-    pool.groqKeys[keyIndex].status = 'dead';
-    pool.groqKeys[keyIndex].cooldownUntil = null;
-  }
-
-  await updateKeyPool(masterKey, pool);
-}
-
-/**
- * Finds the next available key that is not on cooldown or dead,
- * and rotates the pool for round-robin load balancing.
- */
-export async function getNextAvailableKeyAndRotate(masterKey: string, pool: KeyPool): Promise<GroqKey | null> {
-  const now = Date.now();
-  let availableKeyIndex = -1;
-
-  // First, check for expired cooldowns and reset them to active
-  let updatedPool = false;
-  for (const key of pool.groqKeys) {
-    if (key.status === 'cooldown' && key.cooldownUntil && now > key.cooldownUntil) {
-      key.status = 'active';
-      key.cooldownUntil = null;
-      updatedPool = true;
+    // Sadd returns 1 if added, 0 if it was already in the set
+    const isNew = await kv.sadd('global:groq_pool_keys', key);
+    if (isNew === 1) {
+      const newGlobalKey: GroqKeyGlobal = {
+        key,
+        status: 'active',
+        cooldownUntil: null,
+        totalRequests: 0,
+      };
+      await kv.hset('global:groq_pool_status', { [key]: newGlobalKey });
+      addedCount++;
     }
   }
+  return addedCount;
+}
 
-  // Find the first active key
-  availableKeyIndex = pool.groqKeys.findIndex((k) => k.status === 'active');
+/**
+ * Retrieve all keys from the Global Pool
+ */
+export async function getGlobalPoolKeys(): Promise<GroqKeyGlobal[]> {
+  const statusHash = await kv.hgetall('global:groq_pool_status');
+  if (!statusHash) return [];
+  // Return array of GroqKeyGlobal objects
+  return Object.values(statusHash) as GroqKeyGlobal[];
+}
 
-  if (availableKeyIndex !== -1) {
-    const selectedKey = pool.groqKeys.splice(availableKeyIndex, 1)[0];
-    selectedKey.totalRequests += 1;
-    // Push it to the back of the queue (Round Robin)
-    pool.groqKeys.push(selectedKey);
-    // Save updated pool back to KV
-    await updateKeyPool(masterKey, pool);
-    return selectedKey;
-  }
+/**
+ * Update the status of a specific Groq Key in the Global Pool
+ */
+export async function updateGlobalGroqKey(
+  key: string,
+  updates: Partial<Omit<GroqKeyGlobal, 'key'>>
+) {
+  const current = await kv.hget<GroqKeyGlobal>('global:groq_pool_status', key);
+  if (!current) return;
 
-  // If no active keys, save the updated cooldowns anyway
-  if (updatedPool) {
-    await updateKeyPool(masterKey, pool);
-  }
+  const updated = { ...current, ...updates };
+  await kv.hset('global:groq_pool_status', { [key]: updated });
+}
 
-  return null;
+/**
+ * Increments the request count for a Groq Key
+ */
+export async function incrementGlobalGroqKeyUsage(key: string) {
+  const current = await kv.hget<GroqKeyGlobal>('global:groq_pool_status', key);
+  if (!current) return;
+  current.totalRequests = (current.totalRequests || 0) + 1;
+  await kv.hset('global:groq_pool_status', { [key]: current });
+}
+
+
+/* --- MASTER KEYS REGISTRY --- */
+
+/**
+ * Creates a new independent Master Key
+ */
+export async function createMasterKey(masterKey: string, name: string, allowedModels: string[]): Promise<MasterKeyGlobal> {
+  const entry: MasterKeyGlobal = {
+    masterKey,
+    name: name.trim() || 'Unnamed Key',
+    createdAt: Date.now(),
+    allowedModels,
+    totalRequests: 0
+  };
+  
+  // Save to the ordered list
+  await kv.lpush('global:master_keys_registry', entry);
+  
+  return entry;
+}
+
+/**
+ * Retrieves all Master Keys
+ */
+export async function getAllMasterKeys(): Promise<MasterKeyGlobal[]> {
+  const keys = await kv.lrange('global:master_keys_registry', 0, -1);
+  return (keys as unknown) as MasterKeyGlobal[];
+}
+
+/**
+ * Retrieves a specific Master Key to validate it
+ */
+export async function getMasterKey(masterKey: string): Promise<MasterKeyGlobal | null> {
+  const allKeys = await getAllMasterKeys();
+  return allKeys.find(k => k.masterKey === masterKey) || null;
+}
+
+/**
+ * Increments the usage count of a Master Key in the list
+ * Since Upstash lists don't support direct object item updates easily without reading all, 
+ * we'll fetch all, find it, update it, and rewrite the list if necessary, 
+ * OR to be highly scalable, we store master keys in a Hash instead and just keep the list for ordering.
+ * Let's just use a separate Hash for master key stats to avoid race conditions.
+ */
+export async function incrementMasterKeyUsage(masterKey: string) {
+  await kv.hincrby('global:master_key_stats', masterKey, 1);
+}
+
+/**
+ * Get total requests for a specific master key from the stats hash
+ */
+export async function getMasterKeyUsage(masterKey: string): Promise<number> {
+  const count = await kv.hget<number>('global:master_key_stats', masterKey);
+  return count || 0;
 }

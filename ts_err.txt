@@ -1,0 +1,4 @@
+﻿.next/types/validator.ts(53,39): error TS2307: Cannot find module '../../src/app/dashboard/page.js' or its corresponding type declarations.
+.next/types/validator.ts(62,39): error TS2307: Cannot find module '../../src/app/docs/page.js' or its corresponding type declarations.
+.next/types/validator.ts(89,39): error TS2307: Cannot find module '../../src/app/api/pool/route.js' or its corresponding type declarations.
+.next/types/validator.ts(98,39): error TS2307: Cannot find module '../../src/app/api/setup/route.js' or its corresponding type declarations.
