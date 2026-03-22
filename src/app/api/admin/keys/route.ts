@@ -65,7 +65,7 @@ export async function GET(req: Request) {
 
     // Mask the keys before sending to the client
     const maskedKeys = keys.map(k => ({
-      keyObj: k.key.substring(0, 8) + '...' + k.key.substring(k.key.length - 4),
+      key: k.key.substring(0, 8) + '...' + k.key.substring(k.key.length - 4),
       status: k.status,
       cooldownUntil: k.cooldownUntil,
       totalRequests: k.totalRequests
